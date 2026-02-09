@@ -4,7 +4,7 @@ This document captures the hands-on work done to integrate **Maven** with **JFro
 
 ---
 
-### 1. End-to-End README-Style Summary
+### 1. End-to-End  WorkFlow
 
 **Goal**
 
