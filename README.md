@@ -1,176 +1,323 @@
-# Spring PetClinic Sample Application [![Build Status](https://github.com/spring-projects/spring-petclinic/actions/workflows/maven-build.yml/badge.svg)](https://github.com/spring-projects/spring-petclinic/actions/workflows/maven-build.yml)[![Build Status](https://github.com/spring-projects/spring-petclinic/actions/workflows/gradle-build.yml/badge.svg)](https://github.com/spring-projects/spring-petclinic/actions/workflows/gradle-build.yml)
+## Maven – JFrog Artifactory Integration (DevOps)
 
-[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/spring-projects/spring-petclinic) [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://github.com/codespaces/new?hide_repo_select=true&ref=main&repo=7517918)
+This document captures the hands-on work done to integrate **Maven** with **JFrog Artifactory** and **Azure DevOps Git**, focusing on artifact versioning, private repository publishing, and a production-style DevOps workflow.
 
-## Understanding the Spring Petclinic application with a few diagrams
+---
 
-See the presentation here:  
-[Spring Petclinic Sample Application (legacy slides)](https://speakerdeck.com/michaelisvy/spring-petclinic-sample-application?slide=20)
+### 1. End-to-End README-Style Summary
 
-> **Note:** These slides refer to a legacy, pre–Spring Boot version of Petclinic and may not reflect the current Spring Boot–based implementation.  
-> For up-to-date information, please refer to this repository and its documentation.
+**Goal**
 
-## Run Petclinic locally
+- Build and package a Spring Boot application with Maven.
+- Manage artifact versions using the Maven Versions Plugin.
+- Publish artifacts into JFrog Artifactory, reachable at `jfrog.mrdevops.xyz`.
+- Track source in Azure DevOps and prepare to host in GitHub.
 
-Spring Petclinic is a [Spring Boot](https://spring.io/guides/gs/spring-boot) application built using [Maven](https://spring.io/guides/gs/maven/) or [Gradle](https://spring.io/guides/gs/gradle/).
-Java 17 or later is required for the build, and the application can run with Java 17 or newer.
+**Key Steps**
 
-You first need to clone the project locally:
+- Validated Maven installation and Java 17+.
+- Verified and built the project from `pom.xml`.
+- Used `mvn versions:set` to move from `SNAPSHOT` to release versions.
+- Configured Maven authentication (`settings.xml`) and distribution management (`pom.xml`).
+- Deployed multiple artifact versions to Artifactory and verified them in the UI.
+- Pushed source to Azure DevOps and prepared for GitHub hosting.
 
-```bash
-git clone https://github.com/spring-projects/spring-petclinic.git
-cd spring-petclinic
+---
+
+### 2. DevOps Workflow Explanation
+
+- **Source Management**
+  - Code for the Spring Boot application is maintained in Git.
+  - Developers commit and push to Azure DevOps (and can mirror/push to GitHub), providing a single source of truth.
+
+- **Build & Versioning**
+  - Maven drives the lifecycle:
+    - `mvn validate` checks `pom.xml` and project structure.
+    - `mvn clean package` compiles code, runs tests, and builds a JAR in `target/`.
+  - The **Maven Versions Plugin** updates the project version:
+    - `mvn versions:set -DnewVersion=1.0.0`
+    - `mvn versions:set -DnewVersion=1.0.1`
+  - This creates clear, traceable release artifacts (`1.0.0`, `1.0.1`, etc.).
+
+- **Artifact Publishing to Artifactory**
+  - Maven uses credentials from `~/.m2/settings.xml`:
+
+    ```xml
+    <settings>
+      <servers>
+        <server>
+          <id>central</id>
+          <username>admin</username>
+          <password>password</password>
+        </server>
+        <server>
+          <id>snapshots</id>
+          <username>admin</username>
+          <password>password</password>
+        </server>
+      </servers>
+    </settings>
+    ```
+
+  - Artifact destinations are defined in `pom.xml`:
+
+    ```xml
+    <distributionManagement>
+      <repository>
+        <id>central</id>
+        <url>http://jfrog.mrdevops.xyz:8081/artifactory/libs-release-local</url>
+      </repository>
+      <snapshotRepository>
+        <id>snapshots</id>
+        <url>http://jfrog.mrdevops.xyz:8081/artifactory/libs-snapshot-local</url>
+      </snapshotRepository>
+    </distributionManagement>
+    ```
+
+  - During `mvn clean deploy`, Maven uploads artifacts to `libs-release-local` or `libs-snapshot-local`. These are then visible and manageable in the Artifactory UI.
+
+- **Infrastructure, Networking & Health**
+  - DNS is configured so `jfrog.mrdevops.xyz` resolves to the Artifactory server IP.
+  - Artifactory health is verified via:
+
+    ```bash
+    curl http://jfrog.mrdevops.xyz:8081/artifactory/api/system/ping
+    # Expected output: OK
+    ```
+
+  - Service logs were reviewed; entitlement-related 404 warnings were identified as expected in Artifactory OSS and do not affect core artifact management.
+
+- **Consumption & CI/CD**
+  - Other projects and CI/CD pipelines consume artifacts from Artifactory using the configured coordinates and versions.
+  - Azure DevOps (and GitHub Actions later) can automate:
+    - Checkout → Maven build → Version bump → Deploy to Artifactory → Integration tests.
+
+---
+
+### 3. Architecture Diagram (Mermaid)
+
+```mermaid
+flowchart LR
+    Dev[Developer Workstation] -->|git push| AzureDevOps[Azure DevOps Repo]
+
+    subgraph BuildEnv[Build / CI Environment]
+        MVN[Maven CLI]
+    end
+
+    AzureDevOps -->|checkout code| MVN
+    MVN -->|mvn clean package| Jar[Spring Boot JAR]
+    MVN -->|mvn deploy| Artifactory[JFrog Artifactory<br/>jfrog.mrdevops.xyz]
+
+    DNS[DNS: jfrog.mrdevops.xyz] -->|resolves to| Artifactory
+
+    Browser[Web Browser] -->|HTTP :8081| Artifactory
+    Consumers[Downstream Apps / Pipelines] -->|download artifacts| Artifactory
 ```
 
-If you are using Maven, you can start the application on the command-line as follows:
+---
 
-```bash
-./mvnw spring-boot:run
+### 4. Practicals / Hands-On Exercises (Maven + JFrog)
+
+This section documents the concrete exercises executed during the integration.
+
+#### Practical 1: Verify Maven Installation
+
+- **Command**
+
+  ```bash
+  mvn -version
+  ```
+
+- **Expected Output**
+  - Maven version displayed.
+  - Java version 17+.
+  - Correct `JAVA_HOME` path.
+
+✔ Confirms Maven and Java are correctly configured.
+
+---
+
+#### Practical 2: Validate `pom.xml` Configuration
+
+- **Command**
+
+  ```bash
+  mvn validate
+  ```
+
+- **Outcome**
+  - Ensures `pom.xml` syntax is correct.
+  - Verifies project metadata (`groupId`, `artifactId`, `version`).
+  - Fails early if dependency definitions are invalid.
+
+✔ Confirms project structure is Maven-compliant.
+
+---
+
+#### Practical 3: Build the Spring Boot Application
+
+- **Command**
+
+  ```bash
+  mvn clean package
+  ```
+
+- **What Happens**
+  - Downloads dependencies from Maven Central.
+  - Compiles Java source files.
+  - Packages application into a `.jar` file.
+
+- **Verification**
+
+  ```bash
+  ls target/
+  ```
+
+✔ Artifact generated under `target/`.
+
+---
+
+#### Practical 4: Run Application Locally
+
+- **Command**
+
+  ```bash
+  java -jar target/*.jar
+  ```
+
+- **Verification**
+  - Application starts successfully.
+  - Accessible on configured port (e.g., `8080`).
+
+✔ Confirms build artifact is runnable.
+
+---
+
+#### Practical 5: Version Management Using Maven Versions Plugin
+
+- **Update Version**
+
+  ```bash
+  mvn versions:set -DnewVersion=1.0.0
+  ```
+
+- **Verify Version**
+
+  ```bash
+  grep "<version>" pom.xml
+  ```
+
+- **Cleanup Backup Files**
+
+  ```bash
+  rm pom.xml.versionsBackup
+  ```
+
+✔ Demonstrates controlled artifact versioning.
+
+---
+
+#### Practical 6: Verify Artifactory Health
+
+- **Command**
+
+  ```bash
+  curl http://jfrog.mrdevops.xyz:8081/artifactory/api/system/ping
+  ```
+
+- **Expected Output**
+
+  ```text
+  OK
+  ```
+
+✔ Confirms Artifactory service is healthy.
+
+---
+
+#### Practical 7: Configure Maven Authentication for JFrog
+
+- **File**
+
+  `~/.m2/settings.xml`
+
+  ```xml
+  <servers>
+    <server>
+      <id>central</id>
+      <username>admin</username>
+      <password>password</password>
+    </server>
+  </servers>
+  ```
+
+✔ Enables Maven to authenticate with JFrog.
+
+---
+
+#### Practical 8: Configure Distribution Management in `pom.xml`
+
+```xml
+<distributionManagement>
+  <repository>
+    <id>central</id>
+    <url>http://jfrog.mrdevops.xyz:8081/artifactory/libs-release-local</url>
+  </repository>
+  <snapshotRepository>
+    <id>snapshots</id>
+    <url>http://jfrog.mrdevops.xyz:8081/artifactory/libs-snapshot-local</url>
+  </snapshotRepository>
+</distributionManagement>
 ```
 
-With Gradle, the command is as follows:
+✔ Directs Maven where to publish artifacts.
 
-```bash
-./gradlew bootRun
-```
+---
 
-You can then access the Petclinic at <http://localhost:8080/>.
+#### Practical 9: Deploy Artifact to JFrog Artifactory
 
-<img width="1042" alt="petclinic-screenshot" src="https://cloud.githubusercontent.com/assets/838318/19727082/2aee6d6c-9b8e-11e6-81fe-e889a5ddfded.png">
+- **Command**
 
-You can, of course, run Petclinic in your favorite IDE.
-See below for more details.
+  ```bash
+  mvn clean deploy
+  ```
 
-## Building a Container
+- **Verification**
+  - Artifact visible in JFrog UI.
+  - Repository: `libs-release-local` or `libs-snapshot-local`.
 
-There is no `Dockerfile` in this project. You can build a container image (if you have a docker daemon) using the Spring Boot build plugin:
+✔ Confirms successful Maven → JFrog integration.
 
-```bash
-./mvnw spring-boot:build-image
-```
+---
 
-## In case you find a bug/suggested improvement for Spring Petclinic
+#### Practical 10: Incremental Artifact Versioning
 
-Our issue tracker is available [here](https://github.com/spring-projects/spring-petclinic/issues).
+- **Commands**
 
-## Database configuration
+  ```bash
+  mvn versions:set -DnewVersion=1.0.1
+  mvn clean deploy
+  ```
 
-In its default configuration, Petclinic uses an in-memory database (H2) which
-gets populated at startup with data. The h2 console is exposed at `http://localhost:8080/h2-console`,
-and it is possible to inspect the content of the database using the `jdbc:h2:mem:<uuid>` URL. The UUID is printed at startup to the console.
+✔ Demonstrates multiple version deployments.
 
-A similar setup is provided for MySQL and PostgreSQL if a persistent database configuration is needed. Note that whenever the database type changes, the app needs to run with a different profile: `spring.profiles.active=mysql` for MySQL or `spring.profiles.active=postgres` for PostgreSQL. See the [Spring Boot documentation](https://docs.spring.io/spring-boot/how-to/properties-and-configuration.html#howto.properties-and-configuration.set-active-spring-profiles) for more detail on how to set the active profile.
+---
 
-You can start MySQL or PostgreSQL locally with whatever installer works for your OS or use docker:
+#### Practical 11: Azure DevOps Repository Push
 
-```bash
-docker run -e MYSQL_USER=petclinic -e MYSQL_PASSWORD=petclinic -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=petclinic -p 3306:3306 mysql:9.5
-```
+- **Commands**
 
-or
+  ```bash
+  git init
+  git add .
+  git commit -m "Initial Maven-JFrog integration"
+  git remote add origin <ssh-url>
+  git push -u origin master
+  ```
 
-```bash
-docker run -e POSTGRES_USER=petclinic -e POSTGRES_PASSWORD=petclinic -e POSTGRES_DB=petclinic -p 5432:5432 postgres:18.1
-```
+✔ Source code stored securely in Azure DevOps.
 
-Further documentation is provided for [MySQL](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/resources/db/mysql/petclinic_db_setup_mysql.txt)
-and [PostgreSQL](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/resources/db/postgres/petclinic_db_setup_postgres.txt).
+---
 
-Instead of vanilla `docker` you can also use the provided `docker-compose.yml` file to start the database containers. Each one has a service named after the Spring profile:
 
-```bash
-docker compose up mysql
-```
 
-or
-
-```bash
-docker compose up postgres
-```
-
-## Test Applications
-
-At development time we recommend you use the test applications set up as `main()` methods in `PetClinicIntegrationTests` (using the default H2 database and also adding Spring Boot Devtools), `MySqlTestApplication` and `PostgresIntegrationTests`. These are set up so that you can run the apps in your IDE to get fast feedback and also run the same classes as integration tests against the respective database. The MySql integration tests use Testcontainers to start the database in a Docker container, and the Postgres tests use Docker Compose to do the same thing.
-
-## Compiling the CSS
-
-There is a `petclinic.css` in `src/main/resources/static/resources/css`. It was generated from the `petclinic.scss` source, combined with the [Bootstrap](https://getbootstrap.com/) library. If you make changes to the `scss`, or upgrade Bootstrap, you will need to re-compile the CSS resources using the Maven profile "css", i.e. `./mvnw package -P css`. There is no build profile for Gradle to compile the CSS.
-
-## Working with Petclinic in your IDE
-
-### Prerequisites
-
-The following items should be installed in your system:
-
-- Java 17 or newer (full JDK, not a JRE)
-- [Git command line tool](https://help.github.com/articles/set-up-git)
-- Your preferred IDE
-  - Eclipse with the m2e plugin. Note: when m2e is available, there is a m2 icon in `Help -> About` dialog. If m2e is
-    not there, follow the installation process [here](https://www.eclipse.org/m2e/)
-  - [Spring Tools Suite](https://spring.io/tools) (STS)
-  - [IntelliJ IDEA](https://www.jetbrains.com/idea/)
-  - [VS Code](https://code.visualstudio.com)
-
-### Steps
-
-1. On the command line run:
-
-   ```bash
-   git clone https://github.com/spring-projects/spring-petclinic.git
-   ```
-
-1. Inside Eclipse or STS:
-
-   Open the project via `File -> Import -> Maven -> Existing Maven project`, then select the root directory of the cloned repo.
-
-   Then either build on the command line `./mvnw generate-resources` or use the Eclipse launcher (right-click on project and `Run As -> Maven install`) to generate the CSS. Run the application's main method by right-clicking on it and choosing `Run As -> Java Application`.
-
-1. Inside IntelliJ IDEA:
-
-   In the main menu, choose `File -> Open` and select the Petclinic [pom.xml](pom.xml). Click on the `Open` button.
-   - CSS files are generated from the Maven build. You can build them on the command line `./mvnw generate-resources` or right-click on the `spring-petclinic` project then `Maven -> Generates sources and Update Folders`.
-
-   - A run configuration named `PetClinicApplication` should have been created for you if you're using a recent Ultimate version. Otherwise, run the application by right-clicking on the `PetClinicApplication` main class and choosing `Run 'PetClinicApplication'`.
-
-1. Navigate to the Petclinic
-
-   Visit [http://localhost:8080](http://localhost:8080) in your browser.
-
-## Looking for something in particular?
-
-| Spring Boot Configuration | Class or Java property files                                                                                                                                           |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The Main Class            | [PetClinicApplication](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/java/org/springframework/samples/petclinic/PetClinicApplication.java)    |
-| Properties Files          | [application.properties](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/resources)                                                             |
-| Caching                   | [CacheConfiguration](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/java/org/springframework/samples/petclinic/system/CacheConfiguration.java) |
-
-## Interesting Spring Petclinic branches and forks
-
-The Spring Petclinic "main" branch in the [spring-projects](https://github.com/spring-projects/spring-petclinic)
-GitHub org is the "canonical" implementation based on Spring Boot and Thymeleaf. There are
-[quite a few forks](https://spring-petclinic.github.io/docs/forks.html) in the GitHub org
-[spring-petclinic](https://github.com/spring-petclinic). If you are interested in using a different technology stack to implement the Pet Clinic, please join the community there.
-
-## Interaction with other open-source projects
-
-One of the best parts about working on the Spring Petclinic application is that we have the opportunity to work in direct contact with many Open Source projects. We found bugs/suggested improvements on various topics such as Spring, Spring Data, Bean Validation and even Eclipse! In many cases, they've been fixed/implemented in just a few days.
-Here is a list of them:
-
-| Name                                                                                          | Issue                                                                                                                                                           |
-| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Spring JDBC: simplify usage of NamedParameterJdbcTemplate                                     | [SPR-10256](https://github.com/spring-projects/spring-framework/issues/14889) and [SPR-10257](https://github.com/spring-projects/spring-framework/issues/14890) |
-| Bean Validation / Hibernate Validator: simplify Maven dependencies and backward compatibility | [HV-790](https://hibernate.atlassian.net/browse/HV-790) and [HV-792](https://hibernate.atlassian.net/browse/HV-792)                                             |
-| Spring Data: provide more flexibility when working with JPQL queries                          | [DATAJPA-292](https://github.com/spring-projects/spring-data-jpa/issues/704)                                                                                    |
-
-## Contributing
-
-The [issue tracker](https://github.com/spring-projects/spring-petclinic/issues) is the preferred channel for bug reports, feature requests and submitting pull requests.
-
-For pull requests, editor preferences are available in the [editor config](.editorconfig) for easy use in common text editors. Read more and download plugins at <https://editorconfig.org>. All commits must include a **Signed-off-by** trailer at the end of each commit message to indicate that the contributor agrees to the Developer Certificate of Origin.
-For additional details, please refer to the blog post [Hello DCO, Goodbye CLA: Simplifying Contributions to Spring](https://spring.io/blog/2025/01/06/hello-dco-goodbye-cla-simplifying-contributions-to-spring).
-
-## License
-
-The Spring PetClinic sample application is released under version 2.0 of the [Apache License](https://www.apache.org/licenses/LICENSE-2.0).
-
-# testing the readme file
